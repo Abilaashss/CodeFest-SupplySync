@@ -24,6 +24,15 @@
             padding: 10px;
             border-radius: 5px;
         }
+        .zone-label {
+            position: absolute;
+            color: white;
+            font-family: Arial, sans-serif;
+            background: rgba(0,0,0,0.7);
+            padding: 5px;
+            border-radius: 3px;
+            pointer-events: none;
+        }
     </style>
     <!-- Three.js and required libraries -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -44,7 +53,7 @@
                 document.body.appendChild(this.renderer.domElement);
 
                 // Camera position
-                this.camera.position.set(15, 15, 15);
+                this.camera.position.set(20, 20, 20);
                 this.camera.lookAt(0, 0, 0);
 
                 // Lighting
@@ -59,8 +68,12 @@
 
                 // Warehouse properties
                 this.warehouse = this.createWarehouse();
-                this.shelves = this.createShelves();
+                this.zones = this.createZones();
                 this.truck = this.createTruck();
+                
+                // Create zone labels
+                this.zoneLabels = [];
+                this.createZoneLabels();
                 
                 // Product types and their properties
                 this.products = {
@@ -72,7 +85,7 @@
                 // Storage management
                 this.inventory = new Map();
                 this.currentProductType = 'wheel';
-                this.selectedShelf = 0;
+                this.selectedZone = 0;
                 
                 // GUI setup
                 this.setupGUI();
@@ -85,7 +98,7 @@
                 const warehouse = new THREE.Group();
                 
                 // Floor
-                const floorGeometry = new THREE.PlaneGeometry(30, 20);
+                const floorGeometry = new THREE.PlaneGeometry(40, 30);
                 const floorMaterial = new THREE.MeshStandardMaterial({ color: 0x808080 });
                 const floor = new THREE.Mesh(floorGeometry, floorMaterial);
                 floor.rotation.x = -Math.PI / 2;
@@ -93,42 +106,42 @@
 
                 // Walls
                 const wallMaterial = new THREE.MeshStandardMaterial({ color: 0xcccccc });
-                const wallGeometry = new THREE.BoxGeometry(30, 10, 0.2);
+                const wallGeometry = new THREE.BoxGeometry(40, 10, 0.2);
                 
                 const backWall = new THREE.Mesh(wallGeometry, wallMaterial);
-                backWall.position.set(0, 5, -10);
+                backWall.position.set(0, 5, -15);
                 warehouse.add(backWall);
 
                 const sideWall1 = new THREE.Mesh(wallGeometry, wallMaterial);
                 sideWall1.rotation.y = Math.PI / 2;
-                sideWall1.position.set(-15, 5, 0);
+                sideWall1.position.set(-20, 5, 0);
                 warehouse.add(sideWall1);
 
                 const sideWall2 = new THREE.Mesh(wallGeometry, wallMaterial);
                 sideWall2.rotation.y = Math.PI / 2;
-                sideWall2.position.set(15, 5, 0);
+                sideWall2.position.set(20, 5, 0);
                 warehouse.add(sideWall2);
 
                 this.scene.add(warehouse);
                 return warehouse;
             }
 
-            createShelves() {
-                const shelvesGroup = new THREE.Group();
+            createZones() {
+                const zonesGroup = new THREE.Group();
                 
-                // Create multiple shelf units
-                for (let i = 0; i < 3; i++) {
-                    const shelfUnit = this.createShelfUnit();
-                    shelfUnit.position.set(-10 + i * 10, 0, -8);
-                    shelvesGroup.add(shelfUnit);
+                // Create 5 zone units
+                for (let i = 0; i < 5; i++) {
+                    const zoneUnit = this.createZoneUnit();
+                    zoneUnit.position.set(-16 + i * 8, 0, -12);
+                    zonesGroup.add(zoneUnit);
                 }
 
-                this.scene.add(shelvesGroup);
-                return shelvesGroup;
+                this.scene.add(zonesGroup);
+                return zonesGroup;
             }
 
-            createShelfUnit() {
-                const shelfUnit = new THREE.Group();
+            createZoneUnit() {
+                const zoneUnit = new THREE.Group();
                 const shelfMaterial = new THREE.MeshStandardMaterial({ color: 0x8B4513 });
 
                 // Create vertical supports
@@ -136,7 +149,7 @@
                 for (let i = 0; i < 4; i++) {
                     const support = new THREE.Mesh(supportGeometry, shelfMaterial);
                     support.position.set(i < 2 ? -1 : 1, 4, i % 2 ? -1 : 1);
-                    shelfUnit.add(support);
+                    zoneUnit.add(support);
                 }
 
                 // Create horizontal shelves
@@ -144,10 +157,49 @@
                 for (let i = 0; i < 4; i++) {
                     const shelf = new THREE.Mesh(shelfGeometry, shelfMaterial);
                     shelf.position.set(0, i * 2.5, 0);
-                    shelfUnit.add(shelf);
+                    zoneUnit.add(shelf);
                 }
 
-                return shelfUnit;
+                return zoneUnit;
+            }
+
+            createZoneLabels() {
+                // Remove existing labels
+                this.zoneLabels.forEach(label => {
+                    if (label.parentElement) {
+                        label.parentElement.removeChild(label);
+                    }
+                });
+                this.zoneLabels = [];
+
+                // Create new labels for each zone
+                for (let i = 0; i < 5; i++) {
+                    const label = document.createElement('div');
+                    label.className = 'zone-label';
+                    label.textContent = `Zone ${i + 1}`;
+                    document.body.appendChild(label);
+                    this.zoneLabels.push(label);
+                }
+            }
+
+            updateZoneLabels() {
+                this.zones.children.forEach((zone, index) => {
+                    const position = new THREE.Vector3();
+                    position.setFromMatrixPosition(zone.matrixWorld);
+                    position.y += 8; // Position above the zone
+
+                    // Project the 3D position to 2D screen coordinates
+                    const screenPosition = position.project(this.camera);
+
+                    // Convert to pixel coordinates
+                    const x = (screenPosition.x * 0.5 + 0.5) * window.innerWidth;
+                    const y = (-screenPosition.y * 0.5 + 0.5) * window.innerHeight;
+
+                    // Update label position
+                    if (this.zoneLabels[index]) {
+                        this.zoneLabels[index].style.transform = `translate(-50%, -50%) translate(${x}px, ${y}px)`;
+                    }
+                });
             }
 
             createTruck() {
@@ -216,42 +268,49 @@
                 
                 const params = {
                     productType: 'wheel',
-                    shelf: 0,
-                    addProduct: () => this.addProductToShelf(),
-                    loadinTruck: () => this.removeProductFromShelf(),
+                    zone: 0,
+                    addProduct: () => this.addProductToZone(),
+                    loadInTruck: () => this.removeProductFromZone(),
                     startTruck: () => this.startTruck()
                 };
 
                 gui.add(params, 'productType', Object.keys(this.products)).onChange(value => this.currentProductType = value);
-                gui.add(params, 'shelf', { 'Shelf 1': 0, 'Shelf 2': 1, 'Shelf 3': 2 }).onChange(value => this.selectedShelf = value);
+                
+                // Update GUI to show 5 zones
+                const zoneOptions = {};
+                for (let i = 1; i <= 5; i++) {
+                    zoneOptions[`Zone ${i}`] = i - 1;
+                }
+                gui.add(params, 'zone', zoneOptions).onChange(value => this.selectedZone = value);
+                
                 gui.add(params, 'addProduct');
-                gui.add(params, 'loadinTruck');
+                gui.add(params, 'loadInTruck');
                 gui.add(params, 'startTruck');
             }
 
-            addProductToShelf() {
+            addProductToZone() {
                 const product = this.createProduct(this.currentProductType);
                 product.position.set(0, 10, 0); // Start above the warehouse
                 this.scene.add(product);
 
-                const shelfPosition = this.shelves.children[this.selectedShelf].position.clone();
-                shelfPosition.y += 2; // Adjust height to place on shelf
+                const zonePosition = this.zones.children[this.selectedZone].position.clone();
+                zonePosition.y += 2; // Adjust height to place on zone
 
                 new TWEEN.Tween(product.position)
-                    .to({ x: shelfPosition.x, y: shelfPosition.y, z: shelfPosition.z }, 1000)
+                    .to({ x: zonePosition.x, y: zonePosition.y, z: zonePosition.z }, 1000)
                     .easing(TWEEN.Easing.Quadratic.Out)
                     .start();
 
-                if (!this.inventory.has(this.selectedShelf)) {
-                    this.inventory.set(this.selectedShelf, []);
+                if (!this.inventory.has(this.selectedZone)) {
+                    this.inventory.set(this.selectedZone, []);
                 }
-                this.inventory.get(this.selectedShelf).push(product);
+                this.inventory.get(this.selectedZone).push(product);
             }
 
-            removeProductFromShelf() {
-                const shelfProducts = this.inventory.get(this.selectedShelf);
-                if (shelfProducts && shelfProducts.length > 0) {
-                    const product = shelfProducts.pop();
+            removeProductFromZone() {
+                const zoneProducts = this.inventory.get(this.selectedZone);
+                if (zoneProducts && zoneProducts.length > 0) {
+                    const product = zoneProducts.pop();
                     new TWEEN.Tween(product.position)
                         .to({ x: 10, y: 2, z: 8 }, 1000) // Move to truck
                         .easing(TWEEN.Easing.Quadratic.Out)
@@ -261,9 +320,6 @@
             }
 
             startTruck() {
-                const truckPosition = this.truck.position.clone();
-                truckPosition.y += 2;
-
                 new TWEEN.Tween(this.truck.position)
                     .to({ x: 20, y: 0, z: 8 }, 2000) // Move truck away
                     .easing(TWEEN.Easing.Quadratic.Out)
@@ -277,20 +333,25 @@
                 requestAnimationFrame(() => this.animate());
                 TWEEN.update();
                 this.controls.update();
+                this.updateZoneLabels();
                 this.renderer.render(this.scene, this.camera);
             }
         }
 
         // Initialize the simulation when the page loads
+        let simulation;
         window.addEventListener('DOMContentLoaded', () => {
-            const simulation = new WarehouseSimulation();
+            simulation = new WarehouseSimulation();
         });
 
         // Handle window resizing
         window.addEventListener('resize', () => {
-            simulation.camera.aspect = window.innerWidth / window.innerHeight;
-            simulation.camera.updateProjectionMatrix();
-            simulation.renderer.setSize(window.innerWidth, window.innerHeight);
+            if (simulation) {
+                simulation.camera.aspect = window.innerWidth / window.innerHeight;
+                simulation.camera.updateProjectionMatrix();
+                simulation.renderer.setSize(window.innerWidth, window.innerHeight);
+                simulation.createZoneLabels(); // Recreate labels on resize
+            }
         });
     </script>
 </body>
