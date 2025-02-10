@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Demand Forecasting</title>
+<style>
+  :root {
+    --bg-color: #1a1a1a;
+    --text-color: #ffffff;
+    --card-bg: #2d2d2d;
+    --chart-grid: rgba(255, 255, 255, 0.1);
+  }
+
+  [data-theme="light"] {
+    --bg-color: #f4f4f4;
+    --text-color: #000000;
+    --card-bg: #ffffff;
+    --chart-grid: rgba(0, 0, 0, 0.1);
+  }
+
+  body {
+    font-family: Arial, sans-serif;
+    margin: 0;
+    padding: 20px;
+    background-color: var(--bg-color);
+    color: var(--text-color);
+    transition: background-color 0.3s, color 0.3s;
+  }
+  .container {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 20px;
+  }
+  .card {
+    background-color: var(--card-bg);
+    padding: 20px;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  }
+  .card h2 {
+    margin-top: 0;
+  }
+  .trend {
+    font-weight: bold;
+    color: green;
+  }
+  .legend {
+    display: flex;
+    justify-content: space-around;
+    margin-top: 10px;
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+  }
+  .legend-color {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    margin-right: 8px;
+  }
+  .chart-dropdown {
+    margin-right: 20px;
+    padding: 8px;
+    background: var(--card-bg);
+    color: var(--text-color);
+    border: 1px solid var(--text-color);
+    border-radius: 4px;
+  }
+</style>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+
+<div class="container">
+  <!-- Line Chart -->
+  <div class="card">
+    <h2>Line Chart - Demand Forecasting </h2>
+    <div style="margin-bottom: 20px;">
+      <select id="warehouseSelect" class="chart-dropdown">
+        <option value="Warehouse 1">Warehouse 1</option>
+        <option value="Warehouse 2">Warehouse 2</option>
+        <option value="Warehouse 3">Warehouse 3</option>
+        <option value="Warehouse 4">Warehouse 4</option>
+      </select>
+      
+      <select id="productSelect" class="chart-dropdown">
+        <option value="wheel">Wheel</option>
+        <option value="door">Door</option>
+        <option value="headlight">Headlight</option>
+      </select>
+    </div>
+    <canvas id="lineChart"></canvas>
+    <div class="trend">Demand up by 5.2% this month</div>
+    <p>Showing total demand forecast for the next 6 months</p>
+  </div>
+
+  <!-- Stacked Bar Chart with Legend -->
+  <div class="card">
+    <h2>Warehouse Zone Capacity</h2>
+    <canvas id="barChart"></canvas>
+    <div class="legend">
+      <div class="legend-item">
+        <div class="legend-color" style="background-color: #4CAF50;"></div>
+        <span>Zone 1</span>
+      </div>
+      <div class="legend-item">
+        <div class="legend-color" style="background-color: #2196F3;"></div>
+        <span>Zone 2</span>
+      </div>
+      <div class="legend-item">
+        <div class="legend-color" style="background-color: #FFC107;"></div>
+        <span>Zone 3</span>
+      </div>
+      <div class="legend-item">
+        <div class="legend-color" style="background-color: #E91E63;"></div>
+        <span>Zone 4</span>
+      </div>
+      <div class="legend-item">
+        <div class="legend-color" style="background-color: #9C27B0;"></div>
+        <span>Zone 5</span>
+      </div>
+    </div>
+    <p>Showing storage distribution across warehouse zones (in kgs)</p>
+  </div>
+
+  <!-- Area Chart -->
+  <div class="card">
+    <h2>Current Utilization</h2>
+    <div style="margin-bottom: 20px;">
+      <select id="areaWarehouseSelect" class="chart-dropdown">
+        <option value="Warehouse 1">Warehouse 1</option>
+        <option value="Warehouse 2">Warehouse 2</option>
+        <option value="Warehouse 3">Warehouse 3</option>
+        <option value="Warehouse 4">Warehouse 4</option>
+      </select>
+    </div>
+    <canvas id="areaChart"></canvas>
+    <p>Showing current utilization for selected warehouse (last 6 months)</p>
+  </div>
+
+  <!-- Donut Pie Chart with Text -->
+  <div class="card">
+    <h2>Storage Distribution</h2>
+    <div style="margin-bottom: 20px;">
+      <select id="pieWarehouseSelect" class="chart-dropdown">
+        <option value="Warehouse 1">Warehouse 1</option>
+        <option value="Warehouse 2">Warehouse 2</option>
+        <option value="Warehouse 3">Warehouse 3</option>
+        <option value="Warehouse 4">Warehouse 4</option>
+      </select>
+    </div>
+    <canvas id="donutChart"></canvas>
+    <p>Showing storage distribution for selected warehouse</p>
+  </div>
+</div>
+
+<button onclick="toggleTheme()" style="position: fixed; top: 20px; right: 20px; padding: 10px; background: var(--card-bg); color: var(--text-color); border: none; border-radius: 5px; cursor: pointer;">
+  Toggle Theme
+</button>
+
+<script>
+  // Theme management
+  function setTheme(theme) {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('theme', theme);
+  }
+
+  function toggleTheme() {
+    const currentTheme = localStorage.getItem('theme') || 'dark';
+    setTheme(currentTheme === 'dark' ? 'light' : 'dark');
+  }
+
+  // Initialize theme
+  setTheme(localStorage.getItem('theme') || 'dark');
+
+  // Update all charts to use theme colors
+  const chartOptions = {
+    scales: {
+      y: {
+        grid: { color: () => getComputedStyle(document.documentElement).getPropertyValue('--chart-grid') },
+        ticks: { color: () => getComputedStyle(document.documentElement).getPropertyValue('--text-color') }
+      },
+      x: {
+        grid: { color: () => getComputedStyle(document.documentElement).getPropertyValue('--chart-grid') },
+        ticks: { color: () => getComputedStyle(document.documentElement).getPropertyValue('--text-color') }
+      }
+    }
+  };
+
+  // Random data generator
+  function generateProductData(product, warehouse) {
+    const baseValues = {
+      wheel: [65, 59, 80, 81, 56, 55],
+      door: [45, 75, 60, 92, 48, 70],
+      headlight: [30, 85, 45, 60, 75, 40]
+    };
+    
+    // Add some random variation
+    return baseValues[product].map(value => 
+      value * (0.9 + Math.random() * 0.2) // ±10% variation
+    );
+  }
+
+  // Line Chart Configuration
+  const lineCtx = document.getElementById('lineChart').getContext('2d');
+  const lineChart = new Chart(lineCtx, {
+    type: 'line',
+    data: {
+      labels: ['July', 'Aug', 'Sept', 'Oct', 'Nov', 'Dec'],
+      datasets: [{
+        label: 'demand-forecast',
+        data: generateProductData('wheel', 'Warehouse 1'), // Initial data
+        borderColor: '#4CAF50',
+        fill: false,
+      }]
+    },
+    options: {
+      responsive: true,
+      scales: {
+        y: { beginAtZero: true }
+      }
+    }
+  });
+
+  // Dropdown event listeners
+  document.getElementById('warehouseSelect').addEventListener('change', updateChartData);
+  document.getElementById('productSelect').addEventListener('change', updateChartData);
+
+  function updateChartData() {
+    const warehouse = document.getElementById('warehouseSelect').value;
+    const product = document.getElementById('productSelect').value;
+    
+    lineChart.data.datasets[0].data = generateProductData(product, warehouse);
+    lineChart.data.datasets[0].label = `${product} (${warehouse})`;
+    lineChart.update();
+  }
+
+  // Generate random zone data (100-1000 kgs)
+  function generateZoneData() {
+    return Array.from({length: 4}, () => 
+      Math.floor(Math.random() * (1000 - 100 + 1) + 100)
+    );
+  }
+
+  // Bar Chart Configuration
+  const barCtx = document.getElementById('barChart').getContext('2d');
+  const barChart = new Chart(barCtx, {
+    type: 'bar',
+    data: {
+      labels: ['Warehouse 1', 'Warehouse 2', 'Warehouse 3', 'Warehouse 4'],
+      datasets: [
+        {
+          label: 'Zone 1',
+          data: generateZoneData(),
+          backgroundColor: '#4CAF50',
+        },
+        {
+          label: 'Zone 2',
+          data: generateZoneData(),
+          backgroundColor: '#2196F3',
+        },
+        {
+          label: 'Zone 3',
+          data: generateZoneData(),
+          backgroundColor: '#FFC107',
+        },
+        {
+          label: 'Zone 4',
+          data: generateZoneData(),
+          backgroundColor: '#E91E63',
+        },
+        {
+          label: 'Zone 5',
+          data: generateZoneData(),
+          backgroundColor: '#9C27B0',
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      scales: {
+        x: {
+          title: {
+            display: true,
+            text: 'Warehouses',
+            color: () => getComputedStyle(document.documentElement).getPropertyValue('--text-color')
+          }
+        },
+        y: {
+          beginAtZero: true,
+          max: 1000,
+          title: {
+            display: true,
+            text: 'Total Storage (kgs)',
+            color: () => getComputedStyle(document.documentElement).getPropertyValue('--text-color')
+          }
+        }
+      },
+      plugins: {
+        tooltip: {
+          callbacks: {
+            label: (context) => `${context.dataset.label}: ${context.raw} kgs`
+          }
+        }
+      }
+    }
+  });
+
+  // Area chart data generator
+  function generateUtilizationData(warehouse) {
+    const baseValues = {
+      'Warehouse 1': [65, 59, 80, 81, 56, 55],
+      'Warehouse 2': [45, 75, 60, 92, 48, 70],
+      'Warehouse 3': [30, 85, 45, 60, 75, 40],
+      'Warehouse 4': [55, 65, 75, 85, 95, 100]
+    };
+    
+    return baseValues[warehouse].map(value => 
+      Math.min(100, value * (0.9 + Math.random() * 0.2))
+    );
+  }
+
+  // Area Chart Configuration
+  const areaCtx = document.getElementById('areaChart').getContext('2d');
+  const areaChart = new Chart(areaCtx, {
+    type: 'line',
+    data: {
+      labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'],
+      datasets: [{
+        label: 'Utilization (%)',
+        data: generateUtilizationData('Warehouse 1'),
+        borderColor: '#4CAF50',
+        fill: true,
+        backgroundColor: 'rgba(76, 175, 80, 0.2)',
+      }]
+    },
+    options: {
+      responsive: true,
+      scales: {
+        y: {
+          beginAtZero: true,
+          max: 100,
+          ticks: {
+            callback: (value) => `${value}%`
+          }
+        }
+      }
+    }
+  });
+
+  // Pie chart data generator
+  function generateWarehouseData(warehouse) {
+    // Base values with some random variation
+    const wheel = Math.floor(1500 * (0.8 + Math.random() * 0.4));
+    const door = Math.floor(1000 * (0.8 + Math.random() * 0.4));
+    const headlight = Math.floor(750 * (0.8 + Math.random() * 0.4));
+    const unutilized = 5000 - (wheel + door + headlight);
+    
+    return [wheel, door, headlight, unutilized];
+  }
+
+  // Donut Pie Chart Configuration
+  const donutCtx = document.getElementById('donutChart').getContext('2d');
+  const donutChart = new Chart(donutCtx, {
+    type: 'doughnut',
+    data: {
+      labels: ['Wheel', 'Door', 'Headlight', 'Unutilized Space'],
+      datasets: [{
+        label: 'Storage (kgs)',
+        data: generateWarehouseData('Warehouse 1'),
+        backgroundColor: [
+          '#4CAF50', // Wheel (green)
+          '#2196F3', // Door (blue)
+          '#FFC107', // Headlight (yellow)
+          '#E91E63'  // Unutilized (pink)
+        ],
+        hoverOffset: 4
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: {
+          position: 'top',
+          labels: {
+            color: () => getComputedStyle(document.documentElement).getPropertyValue('--text-color')
+          }
+        },
+        title: {
+          display: true,
+          text: 'Warehouse 1 Storage',
+          color: () => getComputedStyle(document.documentElement).getPropertyValue('--text-color')
+        },
+        tooltip: {
+          callbacks: {
+            label: (context) => {
+              const total = context.dataset.data.reduce((a, b) => a + b, 0);
+              const percentage = ((context.raw / total) * 100).toFixed(1) + '%';
+              return `${context.label}: ${context.raw}kgs (${percentage})`;
+            }
+          }
+        }
+      }
+    }
+  });
+
+  // Pie chart dropdown listener
+  document.getElementById('pieWarehouseSelect').addEventListener('change', (e) => {
+    const warehouse = e.target.value;
+    donutChart.data.datasets[0].data = generateWarehouseData(warehouse);
+    donutChart.options.plugins.title.text = `${warehouse} Storage`;
+    donutChart.update();
+  });
+
+  // Area chart dropdown listener
+  document.getElementById('areaWarehouseSelect').addEventListener('change', (e) => {
+    const warehouse = e.target.value;
+    areaChart.data.datasets[0].data = generateUtilizationData(warehouse);
+    areaChart.update();
+  });
+
+  // Update each chart configuration
+  [lineChart, barChart, areaChart, donutChart].forEach(chart => {
+    chart.options = {
+      ...chart.options,
+      ...chartOptions,
+      plugins: {
+        ...chart.options.plugins,
+        legend: {
+          labels: { color: () => getComputedStyle(document.documentElement).getPropertyValue('--text-color') }
+        }
+      }
+    };
+    chart.update();
+  });
+
+  // Specifically update donut chart title color
+  donutChart.options.plugins.title.color = () => getComputedStyle(document.documentElement).getPropertyValue('--text-color');
+  donutChart.update();
+</script>
+
+</body>
+</html>
