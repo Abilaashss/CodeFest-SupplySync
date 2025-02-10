@@ -62,9 +62,10 @@
         // Create warehouses
         const warehouses = [];
         const warehousePositions = [
-            { x: -40, z: 0 },
-            { x: 0, z: 0 },
-            { x: 40, z: 0 }
+            { x: -60, z: 0 },  // Warehouse 1
+            { x: -20, z: 0 },  // Warehouse 2
+            { x: 20, z: 0 },   // Warehouse 3
+            { x: 60, z: 0 }    // Warehouse 4
         ];
 
         warehousePositions.forEach((pos, index) => {
@@ -366,8 +367,8 @@
         };
 
         // Update GUI
-        gui.add(params, 'sourceWarehouse', 0, 2, 1).name('From Warehouse');
-        gui.add(params, 'targetWarehouse', 0, 2, 1).name('To Warehouse');
+        gui.add(params, 'sourceWarehouse', 0, 3, 1).name('From Warehouse');
+        gui.add(params, 'targetWarehouse', 0, 3, 1).name('To Warehouse');
         gui.add(params, 'productType', ['door', 'wheel', 'headlight']).name('Product Type');
         gui.add(params, 'quantity', 1, 10, 1).name('Quantity');
         gui.add(params, 'addProduct').name(`Add Products`);
