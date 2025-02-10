@@ -5,7 +5,6 @@ import { Input } from '@/components/ui/input';
 import { Map, Circle } from 'lucide-react';
 import Link from 'next/link';
 
-const API_KEY = 'bcf25533d92fa14808e49dce72e7c3da';
 
 const MapVisualization = () => {
   const mountRef = useRef(null);
