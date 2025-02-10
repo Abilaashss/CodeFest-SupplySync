@@ -167,6 +167,10 @@
             return mesh;
         }
 
+        // Add variables for arrival time calculation
+        let tripStartTime = 0;
+        const tripDuration = 2000; // ms
+
         // Update GUI and add functionality
         const params = {
             sourceWarehouse: 0,
@@ -293,6 +297,15 @@
                     return;
                 }
 
+                // Calculate travel time based on distance
+                const sourceWarehouse = warehouses[params.sourceWarehouse];
+                const targetWarehouse = warehouses[params.targetWarehouse];
+                const distance = sourceWarehouse.position.distanceTo(targetWarehouse.position);
+                const travelTime = Math.round(distance * 50); // 50ms per unit distance
+
+                // Show travel time popup
+                alert(`Moving from ${sourceWarehouse.name} to ${targetWarehouse.name}\nEstimated travel time: ${(travelTime/1000).toFixed(1)} seconds`);
+
                 // Animate products floating in truck
                 truckLoad.items.forEach((product, index) => {
                     new TWEEN.Tween(product.position)
@@ -305,16 +318,17 @@
 
                 // Move to target warehouse with progress updates
                 const startPos = { x: truck.position.x, z: truck.position.z };
-                const targetWarehouse = warehouses[params.targetWarehouse];
                 
                 new TWEEN.Tween(truck.position)
                     .to({
                         x: targetWarehouse.position.x,
                         z: targetWarehouse.position.z + 10
-                    }, 2000)
+                    }, travelTime)
                     .easing(TWEEN.Easing.Quadratic.InOut)
+                    .onStart(() => {
+                        tripStartTime = Date.now();
+                    })
                     .onUpdate(() => {
-                        // Update position in real-time
                         updateStats();
                     })
                     .onComplete(() => {
@@ -370,6 +384,11 @@
                 headlights: items.filter(i => i.userData.type === 'headlight').length
             });
 
+            const currentTime = Date.now();
+            const elapsed = currentTime - tripStartTime;
+            const remaining = Math.max(0, tripDuration - elapsed);
+            const eta = remaining > 0 ? `ETA: ${(remaining/1000).toFixed(1)}s` : '';
+
             statsDiv.innerHTML = warehouses.map((warehouse, i) => {
                 const counts = countProducts(inventory[i].items);
                 return `
@@ -388,7 +407,8 @@
                 Wheels: ${truckLoad.items.filter(i => i.userData.type === 'wheel').length}<br>
                 Headlights: ${truckLoad.items.filter(i => i.userData.type === 'headlight').length}<br>
                 Total Weight: ${truckLoad.totalWeight}/${truckCapacity}kg<br>
-                Position: ${truck.position.x.toFixed(1)}, ${truck.position.z.toFixed(1)}
+                Position: ${truck.position.x.toFixed(1)}, ${truck.position.z.toFixed(1)}<br>
+                ${eta}
             </div>`;
         }
 
