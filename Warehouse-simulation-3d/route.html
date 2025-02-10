@@ -1,0 +1,839 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Advanced Route Optimization Simulation</title>
+    <style>
+        body { 
+            margin: 0; 
+            font-family: Arial, sans-serif;
+            cursor: grab;
+        }
+        canvas { 
+            display: block; 
+        }
+        #ui {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            max-width: 300px;
+        }
+        #stats {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .control-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        select, button {
+            width: 100%;
+            padding: 8px;
+            margin-bottom: 10px;
+            border-radius: 4px;
+            border: 1px solid #ccc;
+        }
+        button {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+        button:hover {
+            background: #45a049;
+        }
+        #delivery-queue {
+            margin-top: 15px;
+            padding: 10px;
+            background: rgba(0,0,0,0.05);
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <div id="ui">
+        <div class="control-group">
+            <label for="mode">Delivery Mode:</label>
+            <select id="mode" onchange="toggleDeliveryMode()">
+                <option value="auto">Automatic (Nearest Warehouse)</option>
+                <option value="manual">Manual Selection</option>
+            </select>
+        </div>
+        <div class="control-group">
+            <label for="item">Select Item:</label>
+            <select id="item">
+                <option value="door">Car Door ($500)</option>
+                <option value="headlight">Headlight ($200)</option>
+                <option value="wheels">Wheels ($300)</option>
+            </select>
+        </div>
+        <div class="control-group" id="warehouse-selection" style="display: none;">
+            <label for="warehouse">Select Warehouse:</label>
+            <select id="warehouse">
+                ${warehouses.map((w, i) => `
+                    <option value="${i}">${w.name} (${Object.entries(w.inventory).map(([item, count]) => 
+                        `${item}: ${count}`).join(', ')})</option>
+                `).join('')}
+            </select>
+        </div>
+        <div class="control-group">
+            <label for="location">Delivery Location:</label>
+            <select id="location">
+                ${deliveryLocations.map((loc, i) => `
+                    <option value="${i}">${loc.name}</option>
+                `).join('')}
+            </select>
+        </div>
+        <button id="deliver">Start Delivery</button>
+        <button id="reset">Reset Queue and Cost</button>
+        <div id="delivery-queue">
+            <strong>Delivery Queue:</strong>
+            <div id="queue-items"></div>
+        </div>
+    </div>
+    <div id="stats">
+        <h3>Delivery Statistics</h3>
+        <div id="total-cost">Total Cost: $0</div>
+        <div id="total-distance">Total Distance: 0 km</div>
+        <div id="active-deliveries">Active Deliveries: 0</div>
+        <div id="delivery-status"></div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        // Scene setup with improved lighting
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0xf0f0f0);
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true;
+        document.body.appendChild(renderer.domElement);
+
+        // Enhanced lighting
+        const ambientLight = new THREE.AmbientLight(0x404040, 0.5);
+        scene.add(ambientLight);
+        
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+        directionalLight.position.set(5, 5, 5);
+        directionalLight.castShadow = true;
+        scene.add(directionalLight);
+
+        // Ground plane
+        const groundGeometry = new THREE.PlaneGeometry(50, 50);
+        const groundMaterial = new THREE.MeshStandardMaterial({ 
+            color: 0x999999,
+            roughness: 0.8,
+            metalness: 0.2
+        });
+        const ground = new THREE.Mesh(groundGeometry, groundMaterial);
+        ground.rotation.x = -Math.PI / 2;
+        ground.receiveShadow = true;
+        scene.add(ground);
+
+        // Warehouse and delivery location data
+        const warehouses = [
+            { 
+                name: 'Warehouse 1', 
+                position: new THREE.Vector3(-15, 0, 15),
+                items: ['door', 'headlight', 'wheels'],
+                inventory: { door: 10, headlight: 15, wheels: 20 }
+            },
+            { 
+                name: 'Warehouse 2', 
+                position: new THREE.Vector3(15, 0, 15),
+                items: ['door', 'wheels'],
+                inventory: { door: 8, wheels: 25 }
+            },
+            { 
+                name: 'Warehouse 3', 
+                position: new THREE.Vector3(0, 0, -15),
+                items: ['headlight', 'wheels'],
+                inventory: { headlight: 20, wheels: 15 }
+            }
+        ];
+
+        const deliveryLocations = [
+            { name: 'Assembly Plant', position: new THREE.Vector3(-5, 0, 5) },
+            { name: 'Service Center', position: new THREE.Vector3(5, 0, 5) },
+            { name: 'Dealership', position: new THREE.Vector3(-5, 0, -5) },
+            { name: 'Distribution Hub', position: new THREE.Vector3(5, 0, -5) },
+            { name: 'Repair Shop', position: new THREE.Vector3(0, 0, -10) }
+        ];
+
+        // Create detailed warehouse models
+        function createWarehouse() {
+            const group = new THREE.Group();
+            
+            // Main building
+            const building = new THREE.Mesh(
+                new THREE.BoxGeometry(2, 1.5, 2),
+                new THREE.MeshPhongMaterial({ color: 0xe0e0e0 })
+            );
+            building.castShadow = true;
+            building.receiveShadow = true;
+            
+            // Roof
+            const roof = new THREE.Mesh(
+                new THREE.ConeGeometry(1.5, 0.5, 4),
+                new THREE.MeshPhongMaterial({ color: 0x8b4513 })
+            );
+            roof.position.y = 1;
+            roof.castShadow = true;
+            
+            group.add(building);
+            group.add(roof);
+            return group;
+        }
+
+        // Create detailed delivery location markers
+        function createDeliveryMarker() {
+            const group = new THREE.Group();
+            
+            const base = new THREE.Mesh(
+                new THREE.CylinderGeometry(0.5, 0.5, 0.1, 32),
+                new THREE.MeshPhongMaterial({ color: 0xff0000 })
+            );
+            
+            const pole = new THREE.Mesh(
+                new THREE.CylinderGeometry(0.1, 0.1, 1, 16),
+                new THREE.MeshPhongMaterial({ color: 0xffffff })
+            );
+            pole.position.y = 0.5;
+            
+            group.add(base);
+            group.add(pole);
+            return group;
+        }
+
+        // Add this function to create location labels
+        function createLocationLabel(name, position) {
+            const div = document.createElement('div');
+            div.style.position = 'absolute';
+            div.style.color = 'white';
+            div.style.backgroundColor = 'rgba(0,0,0,0.7)';
+            div.style.padding = '5px';
+            div.style.borderRadius = '3px';
+            div.style.fontFamily = 'Arial';
+            div.style.fontSize = '12px';
+            div.style.pointerEvents = 'none';
+            div.textContent = name;
+            document.body.appendChild(div);
+            
+            return div;
+        }
+
+        // Create detailed truck model
+        function createTruck() {
+            const group = new THREE.Group();
+            
+            // Cabin
+            const cabin = new THREE.Mesh(
+                new THREE.BoxGeometry(0.8, 0.8, 0.8),
+                new THREE.MeshPhongMaterial({ color: 0x2244ff })
+            );
+            cabin.position.z = 0.4;
+            cabin.castShadow = true;
+            
+            // Cargo area
+            const cargo = new THREE.Mesh(
+                new THREE.BoxGeometry(0.8, 0.8, 1.2),
+                new THREE.MeshPhongMaterial({ color: 0x2244ff })
+            );
+            cargo.position.z = -0.4;
+            cargo.castShadow = true;
+            
+            // Wheels
+            const wheelGeometry = new THREE.CylinderGeometry(0.2, 0.2, 0.1, 16);
+            const wheelMaterial = new THREE.MeshPhongMaterial({ color: 0x111111 });
+            
+            const wheels = [];
+            const wheelPositions = [
+                [-0.4, -0.4, 0.4],
+                [0.4, -0.4, 0.4],
+                [-0.4, -0.4, -0.4],
+                [0.4, -0.4, -0.4]
+            ];
+            
+            wheelPositions.forEach(position => {
+                const wheel = new THREE.Mesh(wheelGeometry, wheelMaterial);
+                wheel.rotation.z = Math.PI / 2;
+                wheel.position.set(...position);
+                wheel.castShadow = true;
+                wheels.push(wheel);
+            });
+            
+            group.add(cabin);
+            group.add(cargo);
+            wheels.forEach(wheel => group.add(wheel));
+            
+            return group;
+        }
+
+        const truck = createTruck();
+
+        // Delivery queue and cost tracking
+        let deliveryQueue = [];
+        let totalCost = 0;
+        let totalDistance = 0;
+
+        // Dijkstra's algorithm implementation
+        function dijkstra(start, end, graph) {
+            const distances = {};
+            const previous = {};
+            const nodes = new Set();
+            
+            for (let vertex in graph) {
+                distances[vertex] = Infinity;
+                previous[vertex] = null;
+                nodes.add(vertex);
+            }
+            distances[start] = 0;
+            
+            while (nodes.size > 0) {
+                let minNode = null;
+                for (let node of nodes) {
+                    if (minNode === null || distances[node] < distances[minNode]) {
+                        minNode = node;
+                    }
+                }
+                
+                if (minNode === end) break;
+                
+                nodes.delete(minNode);
+                
+                for (let neighbor in graph[minNode]) {
+                    let alt = distances[minNode] + graph[minNode][neighbor];
+                    if (alt < distances[neighbor]) {
+                        distances[neighbor] = alt;
+                        previous[neighbor] = minNode;
+                    }
+                }
+            }
+            
+            return { distances, previous };
+        }
+
+        // Calculate delivery cost based on distance
+        function calculateDeliveryCost(distance, item) {
+            const baseCosts = {
+                'door': 500,
+                'headlight': 200,
+                'wheels': 300
+            };
+            const transportCost = distance * 2; // $2 per unit distance
+            return baseCosts[item] + transportCost;
+        }
+
+        // Add these functions right after the warehouse creation code
+        function createWaypoints() {
+            const waypoints = [];
+            // Create a grid of waypoints for navigation
+            for (let x = -20; x <= 20; x += 5) {
+                for (let z = -20; z <= 20; z += 5) {
+                    waypoints.push(new THREE.Vector3(x, 0, z));
+                }
+            }
+            return waypoints;
+        }
+
+        function createNavigationGraph(points) {
+            const graph = {};
+            points.forEach((point, i) => {
+                graph[i] = {};
+                points.forEach((otherPoint, j) => {
+                    if (i !== j && point.distanceTo(otherPoint) < 10) {
+                        // Check if path is clear
+                        if (isPathClear(point, otherPoint)) {
+                            graph[i][j] = point.distanceTo(otherPoint);
+                        }
+                    }
+                });
+            });
+            return graph;
+        }
+
+        function isPathClear(start, end) {
+            // Simple collision check
+            const direction = end.clone().sub(start);
+            const distance = direction.length();
+            const ray = new THREE.Raycaster(start, direction.normalize());
+            
+            // Get all objects that might intersect
+            const intersects = ray.intersectObjects(scene.children, true);
+            
+            // Return true if no obstacles in path
+            return intersects.length === 0 || intersects[0].distance > distance;
+        }
+
+        // Update findNearestWarehouse function to implement specific mappings
+        function findNearestWarehouse(item, deliveryPosition, locationName) {
+            let selectedWarehouse = null;
+            
+            // Specific warehouse mappings for automatic mode
+            if (locationName === 'Assembly Plant') {
+                selectedWarehouse = warehouses.find(w => w.name === 'Warehouse 1');
+            } else if (locationName === 'Service Center') {
+                selectedWarehouse = warehouses.find(w => w.name === 'Warehouse 2');
+            } else {
+                // All other locations use Warehouse 3
+                selectedWarehouse = warehouses.find(w => w.name === 'Warehouse 3');
+            }
+
+            // Check if selected warehouse has the item in stock
+            if (!selectedWarehouse || !selectedWarehouse.items.includes(item) || selectedWarehouse.inventory[item] <= 0) {
+                return {
+                    warehouse: null,
+                    distance: 0,
+                    route: null
+                };
+            }
+
+            const distance = selectedWarehouse.position.distanceTo(deliveryPosition);
+            const route = {
+                path: [selectedWarehouse.position.clone(), deliveryPosition.clone()],
+                start: selectedWarehouse.position.clone(),
+                end: deliveryPosition.clone()
+            };
+
+            return {
+                warehouse: selectedWarehouse,
+                distance: distance,
+                route: route
+            };
+        }
+
+        // Add direction arrow helper function
+        function createDirectionArrow(start, end) {
+            const direction = end.clone().sub(start);
+            const length = direction.length();
+            direction.normalize();
+
+            const arrowHelper = new THREE.ArrowHelper(
+                direction,
+                start,
+                length,
+                0xffff00,
+                length * 0.2,
+                length * 0.1
+            );
+            return arrowHelper;
+        }
+
+        // Update TruckController class
+        class TruckController {
+            constructor(truck) {
+                this.truck = truck;
+                this.path = [];
+                this.currentPointIndex = 0;
+                this.isMoving = false;
+                this.speed = 0.1;
+                this.rotationSpeed = 0.1;
+                this.lastPosition = new THREE.Vector3();
+            }
+
+            setPath(path) {
+                console.log("Setting new path:", path);
+                this.path = path;
+                this.currentPointIndex = 0;
+                this.isMoving = true;
+                this.truck.position.copy(path[0]);
+                this.lastPosition.copy(this.truck.position);
+            }
+
+            update() {
+                if (!this.isMoving || !this.path || this.currentPointIndex >= this.path.length - 1) {
+                    return false;
+                }
+
+                const nextPoint = this.path[this.currentPointIndex + 1];
+                const direction = new THREE.Vector3()
+                    .subVectors(nextPoint, this.truck.position)
+                    .normalize();
+
+                // Move truck
+                this.truck.position.add(direction.multiplyScalar(this.speed));
+
+                // Update rotation smoothly
+                if (this.truck.position.distanceTo(this.lastPosition) > 0.01) {
+                    const angle = Math.atan2(
+                        this.truck.position.x - this.lastPosition.x,
+                        this.truck.position.z - this.lastPosition.z
+                    );
+                    this.truck.rotation.y = angle;
+                    this.lastPosition.copy(this.truck.position);
+                }
+
+                // Check if reached next point
+                if (this.truck.position.distanceTo(nextPoint) < 0.2) {
+                    this.currentPointIndex++;
+                    if (this.currentPointIndex >= this.path.length - 1) {
+                        this.isMoving = false;
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+        }
+
+        // Create truck controller instance
+        const truckController = new TruckController(truck);
+
+        // Add these functions at the start of your script
+        function updateStats() {
+            document.getElementById('total-cost').textContent = `Total Cost: $${totalCost.toFixed(2)}`;
+            document.getElementById('total-distance').textContent = `Total Distance: ${totalDistance.toFixed(1)} km`;
+            document.getElementById('active-deliveries').textContent = `Active Deliveries: ${deliveryQueue.length}`;
+            
+            const queueItems = document.getElementById('queue-items');
+            queueItems.innerHTML = deliveryQueue.map((delivery, index) => 
+                `<div>${index + 1}. ${delivery.item} to ${delivery.location.name} from ${delivery.warehouse.name}</div>`
+            ).join('');
+        }
+
+        function updateLocationLabels() {
+            deliveryLocations.forEach(location => {
+                if (location.label) {
+                    const vector = location.position.clone();
+                    vector.project(camera);
+                    
+                    const x = (vector.x * 0.5 + 0.5) * window.innerWidth;
+                    const y = (-vector.y * 0.5 + 0.5) * window.innerHeight;
+                    
+                    location.label.style.transform = `translate(-50%, -50%) translate(${x}px, ${y}px)`;
+                }
+            });
+        }
+
+        function calculateTravelTime(distance, speed) {
+            const timeInSeconds = distance / speed;
+            const minutes = Math.floor(timeInSeconds / 60);
+            const seconds = Math.floor(timeInSeconds % 60);
+            return `${minutes}m ${seconds}s`;
+        }
+
+        // Add this function to initialize the UI selectors
+        function initializeUI() {
+            // Populate warehouse selector
+            const warehouseSelect = document.getElementById('warehouse');
+            warehouseSelect.innerHTML = warehouses.map((w, i) => `
+                <option value="${i}">${w.name} (${Object.entries(w.inventory).map(([item, count]) => 
+                    `${item}: ${count}`).join(', ')})</option>
+            `).join('');
+
+            // Populate location selector
+            const locationSelect = document.getElementById('location');
+            locationSelect.innerHTML = deliveryLocations.map((loc, i) => `
+                <option value="${i}">${loc.name}</option>
+            `).join('');
+        }
+
+        // Update the delivery status with better time estimation
+        function updateDeliveryStatus(delivery) {
+            const distance = calculatePathDistance(delivery.route.path);
+            const speed = truckController.speed * 60; // Convert to units per minute
+            const estimatedTime = calculateTravelTime(distance, speed);
+            const arrivalTime = calculateArrivalTime(estimatedTime);
+            
+            const statusDiv = document.getElementById('delivery-status');
+            statusDiv.innerHTML = `
+                <div style="background: rgba(0,0,0,0.8); color: white; padding: 10px; border-radius: 5px; margin-top: 10px;">
+                    <h4 style="margin: 0 0 5px 0;">Current Delivery</h4>
+                    <div>Mode: ${delivery.mode === 'auto' ? 'Automatic' : 'Manual'}</div>
+                    <div>Item: ${delivery.item}</div>
+                    <div>From: ${delivery.warehouse.name}</div>
+                    <div>To: ${delivery.location.name}</div>
+                    <div>Distance: ${distance.toFixed(1)} units</div>
+                    <div style="color: #90EE90;">Est. Travel Time: ${estimatedTime}</div>
+                    <div style="color: #90EE90;">Expected Arrival: ${arrivalTime}</div>
+                </div>
+            `;
+        }
+
+        // Add function to calculate arrival time
+        function calculateArrivalTime(estimatedTime) {
+            const [minutes, seconds] = estimatedTime.split('m ');
+            const now = new Date();
+            now.setMinutes(now.getMinutes() + parseInt(minutes));
+            now.setSeconds(now.getSeconds() + parseInt(seconds));
+            return now.toLocaleTimeString();
+        }
+
+        // Add this function to calculate path distance
+        function calculatePathDistance(path) {
+            let distance = 0;
+            for (let i = 0; i < path.length - 1; i++) {
+                distance += path[i].distanceTo(path[i + 1]);
+            }
+            return distance;
+        }
+
+        // Add mode toggle function
+        function toggleDeliveryMode() {
+            const mode = document.getElementById('mode').value;
+            const warehouseSelection = document.getElementById('warehouse-selection');
+            warehouseSelection.style.display = mode === 'manual' ? 'block' : 'none';
+        }
+
+        // Update the deliver button click handler
+        document.getElementById('deliver').addEventListener('click', () => {
+            const mode = document.getElementById('mode').value;
+            const item = document.getElementById('item').value;
+            const locationIndex = document.getElementById('location').value;
+            const location = deliveryLocations[locationIndex];
+
+            let selectedWarehouse, route, distance;
+
+            if (mode === 'auto') {
+                // Automatic mode - use predefined warehouse mapping
+                const result = findNearestWarehouse(item, location.position, location.name);
+                if (!result.warehouse) {
+                    alert(`The designated warehouse for ${location.name} does not have ${item} in stock.`);
+                    return;
+                }
+                selectedWarehouse = result.warehouse;
+                route = result.route;
+                distance = result.distance;
+            } else {
+                // Manual mode remains the same
+                const warehouseIndex = document.getElementById('warehouse').value;
+                selectedWarehouse = warehouses[warehouseIndex];
+                
+                if (!selectedWarehouse.items.includes(item) || selectedWarehouse.inventory[item] <= 0) {
+                    alert(`Selected warehouse does not have ${item} in stock!`);
+                    return;
+                }
+
+                distance = selectedWarehouse.position.distanceTo(location.position);
+                route = {
+                    path: [selectedWarehouse.position.clone(), location.position.clone()],
+                    start: selectedWarehouse.position.clone(),
+                    end: location.position.clone()
+                };
+            }
+
+            const cost = calculateDeliveryCost(distance, item);
+            const estimatedTime = calculateTravelTime(distance, truckController.speed * 60);
+            const arrivalTime = calculateArrivalTime(estimatedTime);
+
+            const confirmMessage = `Delivery scheduled:
+                Mode: ${mode === 'auto' ? 'Automatic' : 'Manual'}
+                From: ${selectedWarehouse.name}
+                To: ${location.name}
+                Item: ${item}
+                Distance: ${distance.toFixed(1)} units
+                Cost: $${cost.toFixed(2)}
+                Est. Travel Time: ${estimatedTime}
+                Expected Arrival: ${arrivalTime}
+                
+                ${mode === 'auto' ? '(Using designated warehouse for this location)' : ''}`;
+
+            if (confirm(confirmMessage)) {
+                totalCost += cost;
+                totalDistance += distance;
+                selectedWarehouse.inventory[item]--;
+                
+                if (deliveryQueue.length === 0) {
+                    truck.position.copy(selectedWarehouse.position);
+                }
+                
+                const delivery = { 
+                    item, 
+                    location, 
+                    warehouse: selectedWarehouse,
+                    route,
+                    mode
+                };
+                
+                deliveryQueue.push(delivery);
+                
+                if (deliveryQueue.length === 1) {
+                    showDeliveryRoute(route);
+                    updateDeliveryStatus(delivery);
+                }
+                
+                updateStats();
+                initializeUI();
+            }
+        });
+
+        // Update the init function to include UI initialization
+        function init() {
+            // Create warehouses
+            warehouses.forEach(warehouse => {
+                const warehouseModel = createWarehouse();
+                warehouseModel.position.copy(warehouse.position);
+                scene.add(warehouseModel);
+            });
+
+            // Create delivery locations
+            deliveryLocations.forEach(location => {
+                const marker = createDeliveryMarker();
+                marker.position.copy(location.position);
+                scene.add(marker);
+                
+                const label = createLocationLabel(location.name, location.position);
+                location.label = label;
+            });
+
+            // Create and add truck
+            truck.position.set(0, 0, 0);
+            scene.add(truck);
+
+            // Set up camera
+            camera.position.set(0, 30, 30);
+            camera.lookAt(0, 0, 0);
+
+            // Initialize UI
+            initializeUI();
+
+            // Start animation
+            animate();
+        }
+
+        // Update the animate function
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            updateLocationLabels();
+            
+            if (deliveryQueue.length > 0) {
+                const delivery = deliveryQueue[0];
+                
+                if (!truckController.isMoving) {
+                    truckController.setPath(delivery.route.path);
+                    updateDeliveryStatus(delivery);
+                }
+                
+                const deliveryComplete = truckController.update();
+                
+                if (deliveryComplete) {
+                    const existingRoute = scene.getObjectByName('deliveryRoute');
+                    if (existingRoute) scene.remove(existingRoute);
+                    
+                    deliveryQueue.shift();
+                    updateStats();
+                    
+                    if (deliveryQueue.length > 0) {
+                        const nextDelivery = deliveryQueue[0];
+                        showDeliveryRoute(nextDelivery.route);
+                    }
+                }
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        // Update showDeliveryRoute function
+        function showDeliveryRoute(route) {
+            const existingRoute = scene.getObjectByName('deliveryRoute');
+            if (existingRoute) scene.remove(existingRoute);
+            
+            if (!route || !route.path) return;
+            
+            const points = route.path;
+            const geometry = new THREE.BufferGeometry().setFromPoints(points);
+            const material = new THREE.LineBasicMaterial({ 
+                color: 0x00ff00,
+                linewidth: 3,
+                opacity: 0.8,
+                transparent: true
+            });
+            
+            const line = new THREE.Line(geometry, material);
+            line.name = 'deliveryRoute';
+            line.position.y = 0.5;
+            scene.add(line);
+
+            // Add direction arrows
+            const arrowHelper = createDirectionArrow(points[0], points[points.length - 1]);
+            line.add(arrowHelper);
+        }
+
+        // Update reset button to also clear routes
+        document.getElementById('reset').addEventListener('click', () => {
+            deliveryQueue = [];
+            totalCost = 0;
+            totalDistance = 0;
+            
+            // Remove any existing route
+            const existingRoute = scene.getObjectByName('deliveryRoute');
+            if (existingRoute) scene.remove(existingRoute);
+            
+            updateStats();
+        });
+
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            updateLocationLabels();
+        });
+
+        // Make cursor movable
+        let isDragging = false;
+        let previousMousePosition = {
+            x: 0,
+            y: 0
+        };
+
+        document.addEventListener('mousedown', (event) => {
+            isDragging = true;
+        });
+
+        document.addEventListener('mouseup', (event) => {
+            isDragging = false;
+        });
+
+        document.addEventListener('mousemove', (event) => {
+            if (isDragging) {
+                const deltaMove = {
+                    x: event.offsetX - previousMousePosition.x,
+                    y: event.offsetY - previousMousePosition.y
+                };
+
+                const deltaRotationQuaternion = new THREE.Quaternion()
+                    .setFromEuler(new THREE.Euler(
+                        toRadians(deltaMove.y * 1),
+                        toRadians(deltaMove.x * 1),
+                        0,
+                        'XYZ'
+                    ));
+
+                camera.quaternion.multiplyQuaternions(deltaRotationQuaternion, camera.quaternion);
+            }
+
+            previousMousePosition = {
+                x: event.offsetX,
+                y: event.offsetY
+            };
+        });
+
+        function toRadians(angle) {
+            return angle * (Math.PI / 180);
+        }
+
+        // Add this at the end of your script
+        window.addEventListener('DOMContentLoaded', () => {
+            init();
+        });
+    </script>
+</body>
+</html>
