@@ -1,0 +1,15 @@
+{
+  "components/dashboard/WarehouseDashboard.tsx -> ../maps/RouteMap": {
+    "id": "components/dashboard/WarehouseDashboard.tsx -> ../maps/RouteMap",
+    "files": [
+      "static/css/_app-pages-browser_src_components_maps_RouteMap_tsx.css",
+      "static/chunks/_app-pages-browser_src_components_maps_RouteMap_tsx.js"
+    ]
+  },
+  "components/dashboard/WarehouseDashboard.tsx -> ../warehouse/WarehouseVisualization": {
+    "id": "components/dashboard/WarehouseDashboard.tsx -> ../warehouse/WarehouseVisualization",
+    "files": [
+      "static/chunks/_app-pages-browser_src_components_warehouse_WarehouseVisualization_tsx.js"
+    ]
+  }
+}
