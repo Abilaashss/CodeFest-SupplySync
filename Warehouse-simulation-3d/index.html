@@ -35,8 +35,8 @@
         }
         #stats {
             position: absolute;
-            top: 10px;
-            right: 10px;
+            top: 60px;
+            left: 10px;
             color: white;
             font-family: Arial, sans-serif;
             background: rgba(0,0,0,0.7);
@@ -53,6 +53,8 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/dat-gui/0.7.7/dat.gui.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/tween.js/18.6.4/tween.umd.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/FontLoader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/geometries/TextGeometry.js"></script>
 </head>
 <body>
     <div id="info">Warehouse Optimization Simulator</div>
@@ -71,7 +73,7 @@
                 document.body.appendChild(this.renderer.domElement);
 
                 // Camera position
-                this.camera.position.set(20, 20, 20);
+                this.camera.position.set(0, 40, 30); // Adjusted for better overview of U-shape
                 this.camera.lookAt(0, 0, 0);
 
                 // Lighting
@@ -86,7 +88,7 @@
 
                 // Warehouse properties
                 this.warehouse = this.createWarehouse();
-                this.zones = this.createZones();
+                this.zones = this.createZones(); // Create zones immediately
                 this.truck = this.createTruck();
                 
                 // Create zone labels
@@ -95,9 +97,9 @@
                 
                 // Product types and their properties
                 this.products = {
-                    'wheel': { color: 0x444444, size: 1 },
-                    'door': { color: 0x666666, size: 2 },
-                    'headlight': { color: 0xcccccc, size: 0.5 }
+                    'wheel': { color: 0x444444, size: 1, weight: 5 },
+                    'door': { color: 0x666666, size: 2, weight: 6 },
+                    'headlight': { color: 0xcccccc, size: 0.5, weight: 3 }
                 };
 
                 // Storage management
@@ -106,6 +108,16 @@
                 this.selectedZone = 0;
                 this.targetZone = 0;
                 this.maxZoneCapacity = 10; // Maximum capacity per zone
+                this.maxZoneWeight = 75; // Maximum weight per zone in kg
+                this.truckMaxWeight = 50; // kg
+                this.currentTruckWeight = 0;
+                
+                // Add truck inventory tracking
+                this.truckInventory = {
+                    wheel: 0,
+                    door: 0,
+                    headlight: 0
+                };
                 
                 // GUI setup
                 this.setupGUI();
@@ -115,6 +127,13 @@
                 
                 // Start animation loop
                 this.animate();
+
+                // Load font and update zone text after font is loaded
+                const fontLoader = new THREE.FontLoader();
+                fontLoader.load('https://threejs.org/examples/fonts/helvetiker_regular.typeface.json', (loadedFont) => {
+                    this.font = loadedFont;
+                    this.updateZoneText(); // New method to update zone text
+                });
             }
 
             createWarehouse() {
@@ -152,12 +171,20 @@
             createZones() {
                 const zonesGroup = new THREE.Group();
                 
-                // Create 5 zone units
-                for (let i = 0; i < 5; i++) {
+                // Define positions for each zone in the U-shape pattern with more spacing
+                const zonePositions = [
+                    { x: -16, y: 0, z: 8 },    // Zone 1 (bottom left)
+                    { x: 16, y: 0, z: 8 },     // Zone 2 (bottom right)
+                    { x: -16, y: 0, z: 0 },    // Zone 3 (middle left)
+                    { x: 16, y: 0, z: 0 },     // Zone 4 (middle right)
+                    { x: 0, y: 0, z: -8 },     // Zone 5 (top center)
+                ];
+
+                zonePositions.forEach((pos, index) => {
                     const zoneUnit = this.createZoneUnit();
-                    zoneUnit.position.set(-16 + i * 8, 0, -12);
+                    zoneUnit.position.set(pos.x, pos.y, pos.z);
                     zonesGroup.add(zoneUnit);
-                }
+                });
 
                 this.scene.add(zonesGroup);
                 return zonesGroup;
@@ -165,23 +192,33 @@
 
             createZoneUnit() {
                 const zoneUnit = new THREE.Group();
-                const shelfMaterial = new THREE.MeshStandardMaterial({ color: 0x8B4513 });
 
-                // Create vertical supports
-                const supportGeometry = new THREE.BoxGeometry(0.2, 8, 0.2);
-                for (let i = 0; i < 4; i++) {
-                    const support = new THREE.Mesh(supportGeometry, shelfMaterial);
-                    support.position.set(i < 2 ? -1 : 1, 4, i % 2 ? -1 : 1);
-                    zoneUnit.add(support);
-                }
+                // Create larger zone floor marking
+                const zoneFloorGeometry = new THREE.PlaneGeometry(8, 8); // Increased from 6x6 to 8x8
+                const zoneFloorMaterial = new THREE.MeshStandardMaterial({ 
+                    color: 0xffeb3b,
+                    transparent: true,
+                    opacity: 0.3
+                });
+                const zoneFloor = new THREE.Mesh(zoneFloorGeometry, zoneFloorMaterial);
+                zoneFloor.rotation.x = -Math.PI / 2;
+                zoneFloor.position.y = 0.01;
+                zoneUnit.add(zoneFloor);
 
-                // Create horizontal shelves
-                const shelfGeometry = new THREE.BoxGeometry(2.2, 0.2, 2.2);
-                for (let i = 0; i < 4; i++) {
-                    const shelf = new THREE.Mesh(shelfGeometry, shelfMaterial);
-                    shelf.position.set(0, i * 2.5, 0);
-                    zoneUnit.add(shelf);
-                }
+                // Create larger zone boundary lines
+                const lineMaterial = new THREE.LineBasicMaterial({ color: 0xff9800 });
+                const lineGeometry = new THREE.BufferGeometry();
+                const linePoints = [
+                    new THREE.Vector3(-4, 0, -4), // Updated from ±3 to ±4
+                    new THREE.Vector3(4, 0, -4),
+                    new THREE.Vector3(4, 0, 4),
+                    new THREE.Vector3(-4, 0, 4),
+                    new THREE.Vector3(-4, 0, -4)
+                ];
+                lineGeometry.setFromPoints(linePoints);
+                const boundaryLine = new THREE.Line(lineGeometry, lineMaterial);
+                boundaryLine.position.y = 0.02;
+                zoneUnit.add(boundaryLine);
 
                 return zoneUnit;
             }
@@ -259,7 +296,7 @@
                     truck.add(wheel);
                 });
 
-                truck.position.set(10, 0, 8);
+                truck.position.set(0, 0, 4); // Centered, slightly forward
                 this.scene.add(truck);
                 return truck;
             }
@@ -296,38 +333,60 @@
                     addProduct: () => this.addProductToZone(),
                     moveProduct: () => this.moveProductToZone(),
                     loadInTruck: () => this.removeProductFromZone(),
+                    unloadFromTruck: () => this.unloadFromTruck(this.currentProductType),
+                    unloadZone: () => this.unloadZone(),
                     startTruck: () => this.startTruck()
                 };
 
-                gui.add(params, 'productType', Object.keys(this.products)).onChange(value => this.currentProductType = value);
-                
-                // Zone selection for adding/moving products
+                // Create zone options
                 const zoneOptions = {};
                 for (let i = 1; i <= 5; i++) {
                     zoneOptions[`Zone ${i}`] = i - 1;
                 }
+
+                gui.add(params, 'productType', Object.keys(this.products)).onChange(value => this.currentProductType = value);
                 gui.add(params, 'zone', zoneOptions).onChange(value => this.selectedZone = value);
                 gui.add(params, 'targetZone', zoneOptions).name('Move to Zone').onChange(value => this.targetZone = value);
                 
-                gui.add(params, 'addProduct').name('Add Product');
-                gui.add(params, 'moveProduct').name('Move Product');
-                gui.add(params, 'loadInTruck').name('Load in Truck');
-                gui.add(params, 'startTruck').name('Start Truck');
+                const loadingFolder = gui.addFolder('Loading Operations');
+                loadingFolder.add(params, 'addProduct').name('Add Product');
+                loadingFolder.add(params, 'moveProduct').name('Move Product');
+                loadingFolder.add(params, 'loadInTruck').name('Load in Truck');
+                loadingFolder.add(params, 'unloadFromTruck').name('Unload from Truck');
+                loadingFolder.add(params, 'unloadZone').name('Unload Zone');
+                loadingFolder.add(params, 'startTruck').name('Start Truck');
+                loadingFolder.open();
             }
 
             addProductToZone() {
                 const zoneProducts = this.inventory.get(this.selectedZone) || [];
                 if (zoneProducts.length >= this.maxZoneCapacity) {
+                    alert('Zone capacity limit reached!');
                     this.updateStats();
                     return;
                 }
 
+                // Calculate current zone weight
+                const currentZoneWeight = this.calculateZoneWeight(zoneProducts);
+                const newProductWeight = this.products[this.currentProductType].weight;
+                const totalWeight = currentZoneWeight + newProductWeight;
+
+                console.log(`Current zone weight: ${currentZoneWeight}kg`);
+                console.log(`New product weight: ${newProductWeight}kg`);
+                console.log(`Total weight would be: ${totalWeight}kg`);
+                console.log(`Max zone weight: ${this.maxZoneWeight}kg`);
+
+                if (totalWeight > this.maxZoneWeight) {
+                    alert(`Cannot add product. Zone weight limit (${this.maxZoneWeight}kg) would be exceeded! Current weight: ${currentZoneWeight}kg`);
+                    return;
+                }
+
                 const product = this.createProduct(this.currentProductType);
-                product.position.set(0, 10, 0); // Start above the warehouse
+                product.position.set(0, 10, 0);
                 this.scene.add(product);
 
                 const zonePosition = this.zones.children[this.selectedZone].position.clone();
-                zonePosition.y += 2; // Adjust height to place on zone
+                zonePosition.y += 2;
 
                 new TWEEN.Tween(product.position)
                     .to({ x: zonePosition.x, y: zonePosition.y, z: zonePosition.z }, 1000)
@@ -348,13 +407,25 @@
                 }
 
                 if (targetZoneProducts.length >= this.maxZoneCapacity) {
+                    alert('Target zone capacity limit reached!');
                     this.updateStats();
                     return;
                 }
 
-                const product = sourceZoneProducts.pop();
+                const product = sourceZoneProducts[sourceZoneProducts.length - 1];
+                const productType = this.getProductType(product);
+                const productWeight = this.products[productType].weight;
+
+                // Check target zone weight limit
+                const targetZoneWeight = this.calculateZoneWeight(targetZoneProducts);
+                if (targetZoneWeight + productWeight > this.maxZoneWeight) {
+                    alert(`Cannot move product. Target zone weight limit (${this.maxZoneWeight}kg) would be exceeded!`);
+                    return;
+                }
+
+                sourceZoneProducts.pop();
                 const targetZonePosition = this.zones.children[this.targetZone].position.clone();
-                targetZonePosition.y += 2; // Adjust height to place on zone
+                targetZonePosition.y += 2;
 
                 new TWEEN.Tween(product.position)
                     .to({ x: targetZonePosition.x, y: targetZonePosition.y, z: targetZonePosition.z }, 1000)
@@ -373,9 +444,21 @@
                     return;
                 }
 
-                const product = zoneProducts.pop();
+                const product = zoneProducts[zoneProducts.length - 1];
+                const productType = this.getProductType(product);
+                const productWeight = this.products[productType].weight;
+
+                if (this.currentTruckWeight + productWeight > this.truckMaxWeight) {
+                    alert(`Cannot load more products. Truck weight limit (${this.truckMaxWeight}kg) would be exceeded!`);
+                    return;
+                }
+
+                zoneProducts.pop();
+                this.currentTruckWeight += productWeight;
+                this.truckInventory[productType]++;
+
                 new TWEEN.Tween(product.position)
-                    .to({ x: 10, y: 2, z: 8 }, 1000) // Move to truck
+                    .to({ x: 0, y: 2, z: 4 }, 1000)
                     .easing(TWEEN.Easing.Quadratic.Out)
                     .onComplete(() => this.scene.remove(product))
                     .start();
@@ -385,26 +468,96 @@
             }
 
             startTruck() {
+                const fillRatio = (this.currentTruckWeight / this.truckMaxWeight) * 100;
+                
+                if (fillRatio < 50) {
+                    const continueAnyway = confirm(`Truck is only ${fillRatio.toFixed(1)}% full. It's recommended to fill at least 50% for efficient transport. Do you want to start the truck anyway?`);
+                    if (!continueAnyway) {
+                        return;
+                    }
+                }
+
                 new TWEEN.Tween(this.truck.position)
-                    .to({ x: 20, y: 0, z: 8 }, 2000) // Move truck away
+                    .to({ x: 0, y: 0, z: 15 }, 2000)
                     .easing(TWEEN.Easing.Quadratic.Out)
                     .onComplete(() => {
-                        this.truck.position.set(10, 0, 8); // Reset truck position
+                        this.truck.position.set(0, 0, 4);
+                        this.currentTruckWeight = 0;
+                        this.truckInventory = {
+                            wheel: 0,
+                            door: 0,
+                            headlight: 0
+                        };
+                        this.updateStats();
                     })
                     .start();
             }
 
             updateStats() {
                 const statsElement = document.getElementById('zone-stats');
-                statsElement.innerHTML = '';
+                const fillRatio = (this.currentTruckWeight / this.truckMaxWeight) * 100;
+                
+                let truckLoadColor;
+                if (this.currentTruckWeight === 0) {
+                    truckLoadColor = '#ffffff';
+                } else if (fillRatio < 50) {
+                    truckLoadColor = '#ff9800';
+                } else if (this.currentTruckWeight > this.truckMaxWeight * 0.8) {
+                    truckLoadColor = '#ff6b6b';
+                } else {
+                    truckLoadColor = '#90EE90';
+                }
+                
+                statsElement.innerHTML = `
+                    <div style="margin-bottom: 10px; color: ${truckLoadColor}; font-weight: bold;">
+                        Truck Load: ${this.currentTruckWeight}kg / ${this.truckMaxWeight}kg
+                        <div style="font-size: 0.9em; margin-top: 5px;">
+                            Fill Ratio: ${fillRatio.toFixed(1)}%
+                        </div>
+                        <div style="margin-top: 10px; font-size: 0.9em; border-top: 1px solid #555; padding-top: 5px;">
+                            Truck Contents:<br>
+                            - Wheels: ${this.truckInventory.wheel}<br>
+                            - Doors: ${this.truckInventory.door}<br>
+                            - Headlights: ${this.truckInventory.headlight}
+                        </div>
+                    </div>
+                `;
 
+                // Zone stats with detailed product counts
                 for (let i = 0; i < 5; i++) {
                     const zoneProducts = this.inventory.get(i) || [];
-                    const count = zoneProducts.length;
-                    const status = this.getZoneStatus(count);
+                    const status = this.getZoneStatus(zoneProducts.length);
+                    const zoneWeight = this.calculateZoneWeight(zoneProducts);
+                    
+                    const productCounts = {
+                        wheel: 0,
+                        door: 0,
+                        headlight: 0
+                    };
+
+                    zoneProducts.forEach(product => {
+                        if (product.geometry instanceof THREE.TorusGeometry) {
+                            productCounts.wheel++;
+                        } else if (product.geometry instanceof THREE.BoxGeometry) {
+                            productCounts.door++;
+                        } else if (product.geometry instanceof THREE.SphereGeometry) {
+                            productCounts.headlight++;
+                        }
+                    });
+
+                    const weightColor = zoneWeight > this.maxZoneWeight * 0.8 ? '#ff6b6b' : '#ffffff';
+
                     statsElement.innerHTML += `
-                        <div>
-                            Zone ${i + 1}: ${count} items (${status})
+                        <div style="margin-bottom: 15px;">
+                            <div style="font-weight: bold;">Zone ${i + 1} (${status})</div>
+                            <div style="margin-left: 10px; font-size: 0.9em;">
+                                Wheels: ${productCounts.wheel}<br>
+                                Doors: ${productCounts.door}<br>
+                                Headlights: ${productCounts.headlight}<br>
+                                <span style="color: ${weightColor}">
+                                    Weight: ${zoneWeight}kg / ${this.maxZoneWeight}kg
+                                </span>
+                            </div>
                         </div>
                     `;
                 }
@@ -423,6 +576,111 @@
                 this.controls.update();
                 this.updateZoneLabels();
                 this.renderer.render(this.scene, this.camera);
+            }
+
+            updateZoneText() {
+                if (!this.font) return;
+                
+                this.zones.children.forEach((zoneUnit, index) => {
+                    const textGeometry = new THREE.TextGeometry(`Zone ${index + 1}`, {
+                        font: this.font,
+                        size: 0.8,
+                        height: 0.1,
+                    });
+                    const textMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff });
+                    const textMesh = new THREE.Mesh(textGeometry, textMaterial);
+                    textMesh.position.set(-1.5, 4, 0); // Position above the zone
+                    zoneUnit.add(textMesh);
+                });
+            }
+
+            // Add helper method to determine product type
+            getProductType(product) {
+                if (product.geometry instanceof THREE.TorusGeometry) return 'wheel';
+                if (product.geometry instanceof THREE.BoxGeometry) return 'door';
+                if (product.geometry instanceof THREE.SphereGeometry) return 'headlight';
+                return 'unknown';
+            }
+
+            // Add method to unload from truck
+            unloadFromTruck(productType) {
+                if (this.truckInventory[productType] <= 0) {
+                    alert(`No ${productType}s available in the truck!`);
+                    return;
+                }
+
+                const targetZoneProducts = this.inventory.get(this.selectedZone) || [];
+                if (targetZoneProducts.length >= this.maxZoneCapacity) {
+                    alert(`Selected zone is full! Cannot unload ${productType}.`);
+                    return;
+                }
+
+                // Check zone weight limit before unloading
+                const currentZoneWeight = this.calculateZoneWeight(targetZoneProducts);
+                const productWeight = this.products[productType].weight;
+                
+                if (currentZoneWeight + productWeight > this.maxZoneWeight) {
+                    alert(`Cannot unload product. Zone weight limit (${this.maxZoneWeight}kg) would be exceeded!`);
+                    return;
+                }
+
+                const product = this.createProduct(productType);
+                const zonePosition = this.zones.children[this.selectedZone].position.clone();
+                zonePosition.y += 2;
+                product.position.copy(this.truck.position);
+                product.position.y += 2;
+                this.scene.add(product);
+
+                new TWEEN.Tween(product.position)
+                    .to({ x: zonePosition.x, y: zonePosition.y, z: zonePosition.z }, 1000)
+                    .easing(TWEEN.Easing.Quadratic.Out)
+                    .start();
+
+                this.truckInventory[productType]--;
+                this.currentTruckWeight -= this.products[productType].weight;
+                this.inventory.set(this.selectedZone, [...targetZoneProducts, product]);
+                this.updateStats();
+            }
+
+            // Add helper method to calculate zone weight
+            calculateZoneWeight(zoneProducts) {
+                if (!zoneProducts || zoneProducts.length === 0) return 0;
+                
+                return zoneProducts.reduce((total, product) => {
+                    const productType = this.getProductType(product);
+                    if (!this.products[productType]) return total;
+                    return total + this.products[productType].weight;
+                }, 0);
+            }
+
+            // Add method to unload zone
+            unloadZone() {
+                const zoneProducts = this.inventory.get(this.selectedZone) || [];
+                if (zoneProducts.length === 0) {
+                    alert('Selected zone is already empty!');
+                    return;
+                }
+
+                // Remove all products from the zone with animation
+                const removeProduct = (index) => {
+                    if (index >= zoneProducts.length) {
+                        this.inventory.set(this.selectedZone, []);
+                        this.updateStats();
+                        return;
+                    }
+
+                    const product = zoneProducts[index];
+                    new TWEEN.Tween(product.position)
+                        .to({ y: 15 }, 500) // Move product up
+                        .easing(TWEEN.Easing.Quadratic.Out)
+                        .onComplete(() => {
+                            this.scene.remove(product);
+                            removeProduct(index + 1);
+                        })
+                        .start();
+                };
+
+                removeProduct(0);
             }
         }
 
