@@ -33,6 +33,20 @@
             border-radius: 3px;
             pointer-events: none;
         }
+        #stats {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            color: white;
+            font-family: Arial, sans-serif;
+            background: rgba(0,0,0,0.7);
+            padding: 10px;
+            border-radius: 5px;
+            width: 200px;
+        }
+        #stats div {
+            margin: 5px 0;
+        }
     </style>
     <!-- Three.js and required libraries -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -42,6 +56,10 @@
 </head>
 <body>
     <div id="info">Warehouse Optimization Simulator</div>
+    <div id="stats">
+        <h3>Zone Stats</h3>
+        <div id="zone-stats"></div>
+    </div>
     <script>
         class WarehouseSimulation {
             constructor() {
@@ -86,9 +104,14 @@
                 this.inventory = new Map();
                 this.currentProductType = 'wheel';
                 this.selectedZone = 0;
+                this.targetZone = 0;
+                this.maxZoneCapacity = 10; // Maximum capacity per zone
                 
                 // GUI setup
                 this.setupGUI();
+                
+                // Initialize stats
+                this.updateStats();
                 
                 // Start animation loop
                 this.animate();
@@ -269,26 +292,36 @@
                 const params = {
                     productType: 'wheel',
                     zone: 0,
+                    targetZone: 0,
                     addProduct: () => this.addProductToZone(),
+                    moveProduct: () => this.moveProductToZone(),
                     loadInTruck: () => this.removeProductFromZone(),
                     startTruck: () => this.startTruck()
                 };
 
                 gui.add(params, 'productType', Object.keys(this.products)).onChange(value => this.currentProductType = value);
                 
-                // Update GUI to show 5 zones
+                // Zone selection for adding/moving products
                 const zoneOptions = {};
                 for (let i = 1; i <= 5; i++) {
                     zoneOptions[`Zone ${i}`] = i - 1;
                 }
                 gui.add(params, 'zone', zoneOptions).onChange(value => this.selectedZone = value);
+                gui.add(params, 'targetZone', zoneOptions).name('Move to Zone').onChange(value => this.targetZone = value);
                 
-                gui.add(params, 'addProduct');
-                gui.add(params, 'loadInTruck');
-                gui.add(params, 'startTruck');
+                gui.add(params, 'addProduct').name('Add Product');
+                gui.add(params, 'moveProduct').name('Move Product');
+                gui.add(params, 'loadInTruck').name('Load in Truck');
+                gui.add(params, 'startTruck').name('Start Truck');
             }
 
             addProductToZone() {
+                const zoneProducts = this.inventory.get(this.selectedZone) || [];
+                if (zoneProducts.length >= this.maxZoneCapacity) {
+                    this.updateStats();
+                    return;
+                }
+
                 const product = this.createProduct(this.currentProductType);
                 product.position.set(0, 10, 0); // Start above the warehouse
                 this.scene.add(product);
@@ -301,22 +334,54 @@
                     .easing(TWEEN.Easing.Quadratic.Out)
                     .start();
 
-                if (!this.inventory.has(this.selectedZone)) {
-                    this.inventory.set(this.selectedZone, []);
+                this.inventory.set(this.selectedZone, [...zoneProducts, product]);
+                this.updateStats();
+            }
+
+            moveProductToZone() {
+                const sourceZoneProducts = this.inventory.get(this.selectedZone) || [];
+                const targetZoneProducts = this.inventory.get(this.targetZone) || [];
+
+                if (sourceZoneProducts.length === 0) {
+                    this.updateStats();
+                    return;
                 }
-                this.inventory.get(this.selectedZone).push(product);
+
+                if (targetZoneProducts.length >= this.maxZoneCapacity) {
+                    this.updateStats();
+                    return;
+                }
+
+                const product = sourceZoneProducts.pop();
+                const targetZonePosition = this.zones.children[this.targetZone].position.clone();
+                targetZonePosition.y += 2; // Adjust height to place on zone
+
+                new TWEEN.Tween(product.position)
+                    .to({ x: targetZonePosition.x, y: targetZonePosition.y, z: targetZonePosition.z }, 1000)
+                    .easing(TWEEN.Easing.Quadratic.Out)
+                    .start();
+
+                this.inventory.set(this.selectedZone, sourceZoneProducts);
+                this.inventory.set(this.targetZone, [...targetZoneProducts, product]);
+                this.updateStats();
             }
 
             removeProductFromZone() {
-                const zoneProducts = this.inventory.get(this.selectedZone);
-                if (zoneProducts && zoneProducts.length > 0) {
-                    const product = zoneProducts.pop();
-                    new TWEEN.Tween(product.position)
-                        .to({ x: 10, y: 2, z: 8 }, 1000) // Move to truck
-                        .easing(TWEEN.Easing.Quadratic.Out)
-                        .onComplete(() => this.scene.remove(product))
-                        .start();
+                const zoneProducts = this.inventory.get(this.selectedZone) || [];
+                if (zoneProducts.length === 0) {
+                    this.updateStats();
+                    return;
                 }
+
+                const product = zoneProducts.pop();
+                new TWEEN.Tween(product.position)
+                    .to({ x: 10, y: 2, z: 8 }, 1000) // Move to truck
+                    .easing(TWEEN.Easing.Quadratic.Out)
+                    .onComplete(() => this.scene.remove(product))
+                    .start();
+
+                this.inventory.set(this.selectedZone, zoneProducts);
+                this.updateStats();
             }
 
             startTruck() {
@@ -327,6 +392,29 @@
                         this.truck.position.set(10, 0, 8); // Reset truck position
                     })
                     .start();
+            }
+
+            updateStats() {
+                const statsElement = document.getElementById('zone-stats');
+                statsElement.innerHTML = '';
+
+                for (let i = 0; i < 5; i++) {
+                    const zoneProducts = this.inventory.get(i) || [];
+                    const count = zoneProducts.length;
+                    const status = this.getZoneStatus(count);
+                    statsElement.innerHTML += `
+                        <div>
+                            Zone ${i + 1}: ${count} items (${status})
+                        </div>
+                    `;
+                }
+            }
+
+            getZoneStatus(count) {
+                if (count === 0) return 'Empty';
+                if (count < this.maxZoneCapacity / 3) return 'Low Stock';
+                if (count === this.maxZoneCapacity) return 'Full';
+                return 'Good Stock';
             }
 
             animate() {
